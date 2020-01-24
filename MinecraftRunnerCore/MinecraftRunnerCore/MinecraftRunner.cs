@@ -8,40 +8,18 @@ namespace MinecraftRunnerCore
 {
     class MinecraftRunner
     {
-        private Task LoopTask { get; set; }
-        private CancellationTokenSource LoopToken { get; set; }
-
-        public bool ActiveLoop => LoopTask != null;
-
-        public void StartLoop()
+        public async Task StartAsync(CancellationToken token)
         {
-            CloseLoop();
             InstallIfNecessary();
 
-            LoopToken = new CancellationTokenSource();
-            LoopTask = Task.Factory.StartNew(delegate
+            await  Task.Factory.StartNew(delegate
             {
-                while (!LoopToken.Token.IsCancellationRequested)
+                while (!token.IsCancellationRequested)
                 {
                     MainLoopIteration();      
                 }
                 Console.WriteLine("Task Cancelled");
-            }, LoopToken.Token, TaskCreationOptions.LongRunning);
-        }
-
-        public void StopLoop()
-        {
-            CloseLoop();
-        }
-
-        private void CloseLoop()
-        {
-            if (LoopTask == null) return;
-
-            LoopToken?.Cancel();
-            LoopToken?.Dispose();
-            LoopToken = null;
-            LoopTask = null;
+            }, token, TaskCreationOptions.LongRunning);
         }
 
         private void MainLoopIteration()
