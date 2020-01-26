@@ -13,13 +13,14 @@ namespace MinecraftRunnerCore
 {
     class MinecraftRunner
     {
-        private const string InstallerJarRegexString = "forge-(.*?)-(.*?)-installer\\.jar";
-        private static Regex InstallerJarRegex = new Regex(InstallerJarRegexString);
-        private const string UniversalJarRegexString = "forge-(.*?)universal.jar";
-        private static Regex UniversalJarRegex = new Regex(UniversalJarRegexString);
+        private const string InstallerJarRegexstring = "forge-(.*?)-(.*?)-installer\\.jar";
+        private static Regex InstallerJarRegex = new Regex(InstallerJarRegexstring);
+        private const string UniversalJarRegexstring = "forge-(.*?)universal.jar";
+        private static Regex UniversalJarRegex = new Regex(UniversalJarRegexstring);
         private const string MinecraftServerFolderName = "mcserver";
         private string RootDirectory { get; }
-        private string MinecraftServerFolder { get; }
+        private MinecraftServer Server { get; set; }
+        public string MinecraftServerFolder { get; }
         public MinecraftRunner(string rootDirectory)
         {
             RootDirectory = rootDirectory;
@@ -40,11 +41,17 @@ namespace MinecraftRunnerCore
                     MainLoopIteration();
                 }
                 Console.WriteLine("Task Cancelled");
+                Server?.Stop();
             }, token, TaskCreationOptions.LongRunning);
         }
 
         private void MainLoopIteration()
         {
+            if (Server == null)
+            {
+                Server = new MinecraftServer(this);
+                _ = Server.StartAsync(GetForgeUniversalJarName());
+            }
         }
 
         private void Install(string mcversion, string forgeversion, string launchwrapperversion, bool force)
@@ -59,15 +66,14 @@ namespace MinecraftRunnerCore
                 return;
             }
 
-            var matches = Directory.EnumerateFiles(MinecraftServerFolder).Where((file) => InstallerJarRegex.Match(file).Success);
-            if (matches.Count() > 0)
+            if (TryFindInstallerJarName(out string installerJarName))
             {
                 Process installer = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = "java",
-                        Arguments = String.Format("-jar \"{0}\" --installServer", matches.First()),
+                        Arguments = string.Format("-jar \"{0}\" --installServer", installerJarName),
                         WorkingDirectory = MinecraftServerFolder
                     }
                 };
@@ -76,18 +82,18 @@ namespace MinecraftRunnerCore
             }
             else
             {
-                const string installerJarName = "forge-universal.jar";
+                installerJarName = "forge-universal.jar";
                 string installerJarFile = Path.Combine(MinecraftServerFolder, installerJarName);
-                string universalJarName = String.Format("forge-{0}-{1}-universal.jar", mcversion, forgeversion);
-                string installerNetPath = String.Format("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{0}-{1}/{2}", mcversion, forgeversion, universalJarName);
-                var downloadInstallerTask = DownloadFile(installerJarName, installerNetPath, returnIfExists: true);
+                string universalJarName = string.Format("forge-{0}-{1}-universal.jar", mcversion, forgeversion);
+                string installerNetPath = string.Format("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{0}-{1}/{2}", mcversion, forgeversion, universalJarName);
+                var downloadInstallerTask = DownloadFile(installerJarFile, installerNetPath, returnIfExists: true);
 
-                string serverJarName = String.Format("minecraft_server.{0}.jar", mcversion);
-                string serverNetPath = String.Format("https://s3.amazonaws.com/Minecraft.Download/versions/{0}/{1}", mcversion, serverJarName);
+                string serverJarName = string.Format("minecraft_server.{0}.jar", mcversion);
+                string serverNetPath = string.Format("https://s3.amazonaws.com/Minecraft.Download/versions/{0}/{1}", mcversion, serverJarName);
                 var downloadServerTask = DownloadFile(serverJarName, serverNetPath, returnIfExists: true);
 
-                string launchwrapperJarName = String.Format("launchwrapper-{0}.jar", launchwrapperversion);
-                string launchwrapperNetPath = String.Format("https://libraries.minecraft.net/net/minecraft/launchwrapper/{0}/{1}", launchwrapperversion, launchwrapperJarName);
+                string launchwrapperJarName = string.Format("launchwrapper-{0}.jar", launchwrapperversion);
+                string launchwrapperNetPath = string.Format("https://libraries.minecraft.net/net/minecraft/launchwrapper/{0}/{1}", launchwrapperversion, launchwrapperJarName);
                 string launchwrapperLocalPath = Path.Combine(MinecraftServerFolder, "libraries", "net", "minecraft", "launchwrapper", launchwrapperversion, launchwrapperJarName);
                 var launchwrapperDownloadTask = DownloadFile(launchwrapperLocalPath, launchwrapperNetPath, returnIfExists: true);
 
@@ -97,19 +103,35 @@ namespace MinecraftRunnerCore
             HandleEula();
             Console.WriteLine("Installation Completed");
         }
-        
-        private void HandleEula()
+
+        private bool TryFindInstallerJarName(out string jarName)
+        {
+            jarName = null;
+            var candidates = Directory.EnumerateFiles(MinecraftServerFolder).Where((file) => InstallerJarRegex.Match(file).Success);
+            if(candidates.Count() > 0)
+            {
+                jarName = candidates.First();
+                return true;
+            }
+            return false;
+        }
+
+        private string GetForgeUniversalJarName()
         {
             var matches = Directory.EnumerateFiles(MinecraftServerFolder).Where((file) => UniversalJarRegex.Match(file).Success);
             if (matches.Count() == 0)
-                throw new FileNotFoundException(String.Format("Cannot find ForgeUniversal file matching regex={0}", UniversalJarRegexString));
-            
+                throw new FileNotFoundException(string.Format("Cannot find ForgeUniversal file matching regex={0}", UniversalJarRegexstring));
+            return matches.First();
+        }
+
+        private void HandleEula()
+        {
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "java",
-                    Arguments = String.Format("-jar \"{0}\" -Xmx2G nogui", matches.First()),
+                    Arguments = string.Format("-jar \"{0}\" -Xmx2G nogui", GetForgeUniversalJarName()),
                     WorkingDirectory = MinecraftServerFolder,
                 }
             };
@@ -130,11 +152,11 @@ namespace MinecraftRunnerCore
             {
                 while (!File.Exists(eulaTxtPath)) Thread.Sleep(100);
                 string eulaContents = null;
-                while (String.IsNullOrEmpty(eulaContents))
+                while (string.IsNullOrEmpty(eulaContents))
                 {
                     try
                     {
-                        while (String.IsNullOrEmpty((eulaContents = File.ReadAllText(eulaTxtPath)))) Thread.Sleep(100);
+                        while (string.IsNullOrEmpty((eulaContents = File.ReadAllText(eulaTxtPath)))) Thread.Sleep(100);
                     }
                     catch
                     {
