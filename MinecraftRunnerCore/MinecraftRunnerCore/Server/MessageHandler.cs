@@ -16,7 +16,7 @@ namespace MinecraftRunnerCore.Server
         private static Regex playerRegex = new Regex(playerRegexString);
         private const string doneRegexString = "\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Done";
         private static Regex doneRegex = new Regex(doneRegexString);
-        
+
         private MinecraftServer Server { get; }
 
         public MessageHandler(MinecraftServer server)
@@ -26,7 +26,26 @@ namespace MinecraftRunnerCore.Server
 
         public async Task HandleMessageAsync(MinecraftServer sender, string message)
         {
-            return;
+            if (doneRegex.IsMatch(message) && sender.ServerStatus == ServerStatus.Starting)
+            {
+                sender.SetStatus(ServerStatus.Running);
+                return;
+            }
+
+            if (sender.ServerStatus != ServerStatus.Running) return;
+
+            if (messageRegex.IsMatch(message))
+            {
+
+            }
+            else if (tpsRegex.IsMatch(message))
+            {
+
+            }
+            else if (playerRegex.IsMatch(message))
+            {
+
+            }
         }
     }
 }

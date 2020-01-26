@@ -15,6 +15,15 @@ namespace MinecraftRunnerCore
         private Process ServerProcess { get; set; }
         private MessageHandler MessageHandler { get; set; }
         private ServerData Data { get; set; }
+        public ServerStatus ServerStatus
+        {
+            get
+            {
+                if (ServerStatus.TryParse<ServerStatus>(Data?.Status, out ServerStatus status))
+                    return status;
+                else return ServerStatus.Stopped;
+            }
+        }
         public bool Running => ServerProcess != null && !ServerProcess.HasExited;
         public delegate void ServerOutputEventHandler(MinecraftServer server, string output);
         public event ServerOutputEventHandler ServerOutputEvent;
