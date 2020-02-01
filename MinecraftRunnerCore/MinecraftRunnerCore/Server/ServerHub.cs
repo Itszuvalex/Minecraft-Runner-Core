@@ -32,12 +32,14 @@ namespace MinecraftRunnerCore.Server
             ConnectLoopCancellationSource = new CancellationTokenSource();
             ConnectLoopTask = Task.Factory.StartNew(async () =>
             {
+                Console.WriteLine("Starting connection loop.");
                 while(!ConnectLoopCancellationSource.IsCancellationRequested)
                 {
                     try
                     {
                         if (!IsConnected)
                         {
+                            Console.WriteLine("Connection Loop: Starting to attempt to connect.");
                             await ConnectAsync();
                         }
                     }
@@ -65,19 +67,34 @@ namespace MinecraftRunnerCore.Server
 
         public async Task ConnectAsync()
         {
+            Console.WriteLine("ConnectAsync");
             if (Socket == null)
             {
                 Socket = new ClientWebSocket();
                 CancellationSource = new CancellationTokenSource();
             }
 
-            var connectTask = Socket.ConnectAsync(HubUri, CancellationSource.Token);
-            connectTask.Wait();
-            if (!connectTask.IsCompletedSuccessfully)
+            Task connectTask; 
+            try
             {
+                connectTask = Socket.ConnectAsync(HubUri, CancellationSource.Token);
+                connectTask.Wait();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(String.Format("Connection task threw exception on connect = {0}", e.ToString()));
                 await CloseAsync();
                 return;
             }
+
+            if (!connectTask.IsCompletedSuccessfully)
+            {
+                Console.WriteLine("Connection task completed unsuccessfully.");
+                await CloseAsync();
+                return;
+            }
+
+            Console.WriteLine(String.Format("Connection task completed successfully.  Socket State = {0}", Socket.State.ToString()));
 
             HubConnectionEstablished?.Invoke(this);
 
@@ -148,18 +165,21 @@ namespace MinecraftRunnerCore.Server
 
         public async Task CloseAsync(WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure)
         {
+            Console.WriteLine("CloseAsync");
             if (Socket == null) return;
 
             try
             {
+                Console.WriteLine("CloseAsync : Close socket");
                 await Socket.CloseAsync(status, "Minecraft Server closing", CancellationSource.Token);
             }
             finally
             {
-                CancellationSource.Cancel();
-                Socket.Dispose();
+                Console.WriteLine("CloseAsync : Clear data");
+                CancellationSource?.Cancel();
+                Socket?.Dispose();
                 Socket = null;
-                CancellationSource.Dispose();
+                CancellationSource?.Dispose();
                 CancellationSource = null;
             }
         }
