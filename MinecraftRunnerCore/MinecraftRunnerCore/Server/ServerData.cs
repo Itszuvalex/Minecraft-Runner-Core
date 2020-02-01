@@ -13,10 +13,10 @@ namespace MinecraftRunnerCore.Server
         public long MemoryMax { get; set; }
         public long Storage { get; set; }
         public long StorageMax { get; set; }
-        public ICollection<string> Players { get; }
+        public HashSet<string> Players { get; }
         public int PlayerCount { get; set; }
         public int PlayerMax { get; set; }
-        public IDictionary<int, float> Tps { get; }
+        public Dictionary<string, float> Tps { get; }
         public string Status { get; set; }
         public int ActiveTime => Convert.ToInt32((DateTime.Now - CreationTime).TotalSeconds);
 
@@ -26,7 +26,7 @@ namespace MinecraftRunnerCore.Server
         {
             Name = name;
             Players = new HashSet<string>();
-            Tps = new Dictionary<int, float>();
+            Tps = new Dictionary<string, float>();
             CreationTime = DateTime.Now;
         }
 

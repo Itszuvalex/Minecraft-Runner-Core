@@ -18,10 +18,10 @@ namespace MinecraftDiscordBotCore.Models.Messages
         public string[] Players { get; }
         public int PlayerCount { get; }
         public int PlayerMax { get; }
-        public IDictionary<int, float> Tps { get; }
+        public Dictionary<string, float> Tps { get; }
         public string Status { get; }
         public int ActiveTime { get; }
-        public McServerStatus(string name, long memory, long memorymax, long storage, long storagemax, string[] players, int playercount, int playermax, IDictionary<int, float> tps, string status, int activeTime)
+        public McServerStatus(string name, long memory, long memorymax, long storage, long storagemax, string[] players, int playercount, int playermax, Dictionary<string, float> tps, string status, int activeTime)
         {
             Name = name;
             Memory = memory;
