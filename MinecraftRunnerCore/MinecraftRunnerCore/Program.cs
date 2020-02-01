@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MinecraftRunnerCore.Server;
+using System;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -14,6 +15,7 @@ namespace MinecraftRunnerCore
 
         public async Task MainAsync(string[] args)
         {
+            /*
             using var cancellationToken = new CancellationTokenSource();
             var runner = new MinecraftRunner(Directory.GetCurrentDirectory());
             Console.CancelKeyPress += new ConsoleCancelEventHandler(delegate (object sender, ConsoleCancelEventArgs e)
@@ -23,6 +25,11 @@ namespace MinecraftRunnerCore
                 e.Cancel = true;
             });
             await runner.StartAsync(cancellationToken.Token);
+            */
+            var hub = new ServerHub();
+            hub.HubUri = new Uri("ws://localhost:32775/ws");
+            hub.BeginConnectionLoop();
+            await Task.Delay(-1);
             Console.WriteLine("Closing");
         }
     }
