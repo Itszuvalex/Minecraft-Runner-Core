@@ -118,6 +118,7 @@ namespace MinecraftRunnerCore.Server
                         var result = await Socket.ReceiveAsync(buffer, CancellationSource.Token);
                         if (result.CloseStatus.HasValue)
                         {
+                            Console.WriteLine("Received close from hub.");
                             await CloseAsync(status);
                             return;
                         }
@@ -154,8 +155,9 @@ namespace MinecraftRunnerCore.Server
                         }
                     }
                 }
-                catch
+                catch (Exception e)
                 {
+                    Console.WriteLine(String.Format("Received exception during receive = {0}", e));
                     await CloseAsync(status);
                     return;
                 }
