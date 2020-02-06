@@ -27,7 +27,7 @@ namespace MinecraftRunnerCore
         {
             get
             {
-                if (ServerStatus.TryParse<ServerStatus>(Data?.Status, out ServerStatus status))
+                if (Enum.TryParse(Data?.Status, out ServerStatus status))
                     return status;
                 else return ServerStatus.Stopped;
             }

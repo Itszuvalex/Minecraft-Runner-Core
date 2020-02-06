@@ -2,6 +2,7 @@
 
 FROM mcr.microsoft.com/dotnet/core/runtime:3.1-buster-slim AS base
 WORKDIR /app
+RUN apt-get update & apt-get install -y default-jre & apt-get clean
 
 FROM mcr.microsoft.com/dotnet/core/sdk:3.1-buster AS build
 WORKDIR /src

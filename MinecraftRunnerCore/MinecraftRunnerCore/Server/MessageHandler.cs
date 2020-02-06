@@ -17,6 +17,15 @@ namespace MinecraftRunnerCore.Server
         private const string doneRegexString = "\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Done";
         private static Regex doneRegex = new Regex(doneRegexString);
 
+        public delegate void PlayerMessageEventHandler(object sender, string message);
+        public event PlayerMessageEventHandler PlayerMessageEvent;
+        public delegate void TpsMessageEventHandler(object sender, string message);
+        public event TpsMessageEventHandler TpsMessageEvent;
+        public delegate void PlayersEventHandler(object sender, string message);
+        public event PlayersEventHandler PlayersEvent;
+        public delegate void DoneMessageEventHandler(object sender, string message);
+        public event DoneMessageEventHandler DoneMessageEvent;
+
         private MinecraftServer Server { get; }
 
         public MessageHandler(MinecraftServer server)
@@ -26,25 +35,24 @@ namespace MinecraftRunnerCore.Server
 
         public async Task HandleMessageAsync(MinecraftServer sender, string message)
         {
-            if (doneRegex.IsMatch(message) && sender.ServerStatus == ServerStatus.Starting)
+            if (doneRegex.IsMatch(message))
             {
-                sender.SetStatus(ServerStatus.Running);
+                DoneMessageEvent?.Invoke(this, message);
                 return;
             }
-
-            if (sender.ServerStatus != ServerStatus.Running) return;
-
             if (messageRegex.IsMatch(message))
             {
-
+                PlayerMessageEvent?.Invoke(this, message);
+                return;
             }
-            else if (tpsRegex.IsMatch(message))
+            if (tpsRegex.IsMatch(message))
             {
-
+                TpsMessageEvent?.Invoke(this, message);
+                return;
             }
-            else if (playerRegex.IsMatch(message))
+            if (playerRegex.IsMatch(message))
             {
-
+                PlayersEvent?.Invoke(this, message);
             }
         }
     }
