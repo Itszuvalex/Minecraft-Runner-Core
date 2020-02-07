@@ -20,55 +20,33 @@ namespace MinecraftRunnerCore
         private ServerHub Hub { get; }
         private Settings Settings { get; }
         public string MinecraftServerFolder { get; }
-        public MinecraftRunner(string rootDirectory, Settings settings, ServerHub hub)
+        private CancellationToken Token { get; }
+        public MinecraftRunner(string rootDirectory, Settings settings, CancellationToken token)
         {
             RootDirectory = rootDirectory;
             MinecraftServerFolder = Path.Combine(RootDirectory, MinecraftServerFolderName);
-            Hub = hub;
+            Hub = new ServerHub();
+            Hub.HubUri = new Uri(settings.HubUrl);
             Settings = settings;
-            Server = new MinecraftServer(this, Hub, MinecraftServerFolder);
+            Server = new MinecraftServer(this, Hub, MinecraftServerFolder, settings);
+            Token = token;
         }
 
-        public async Task StartAsync(CancellationToken token)
+        public async Task StartAsync()
         {
-            try
-            {
-                Server.Install(Settings.McVer, Settings.ForgeVer, Settings.LaunchWrapperVer, force: false);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(String.Format("Encountered exception when attempting to install = {0}", e));
-            }
+            Hub.BeginConnectionLoop();
+            Server.StartRunLoop();
 
-            await Task.Factory.StartNew(delegate
+            await Task.Factory.StartNew(() =>
             {
-                try
+                while(!Token.IsCancellationRequested)
                 {
-                    while (!token.IsCancellationRequested)
-                    {
-                        MainLoopIteration();
-                    }
-                    Console.WriteLine("Task Cancelled");
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
                 }
-                catch (Exception e)
-                {
-                    Console.WriteLine(String.Format("Encountered exception during main loop = {0}", e));
-                }
-                finally
-                {
-                    Server.Stop();
-                }
-            }, token, TaskCreationOptions.LongRunning);
+            }, TaskCreationOptions.LongRunning);
+
+            await Server.StopRunLoopAsync();
+            Hub.EndConnectionLoop();
         }
-
-        private void MainLoopIteration()
-        {
-            if (!Server.Running)
-            {
-                Console.WriteLine("McServer isn't running.");
-                Server.StartAsync().Wait();
-            }
-        }
-
     }
 }

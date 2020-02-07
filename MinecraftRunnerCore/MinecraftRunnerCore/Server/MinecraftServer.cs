@@ -13,15 +13,7 @@ namespace MinecraftRunnerCore
 {
     class MinecraftServer
     {
-        private const string InstallerJarRegexstring = "forge-(.*?)-(.*?)-installer\\.jar";
-        private static Regex InstallerJarRegex = new Regex(InstallerJarRegexstring);
-        private const string UniversalJarRegexstring = "forge-(.*?)universal.jar";
-        private static Regex UniversalJarRegex = new Regex(UniversalJarRegexstring);
-        private MinecraftRunner Runner { get; }
-        private Process ServerProcess { get; set; }
-        private MessageHandler MessageHandler { get; set; }
-        private ServerData Data { get; set; }
-        private ServerHub Hub { get; set; }
+        #region Public
         public string MinecraftServerFolder { get; }
         public ServerStatus ServerStatus
         {
@@ -32,42 +24,199 @@ namespace MinecraftRunnerCore
                 else return ServerStatus.Stopped;
             }
         }
-        public bool Running => ServerProcess != null && !ServerProcess.HasExited;
+        public bool ServerRunning => ServerProcess != null && !ServerProcess.HasExited;
+        public bool LoopRunning => ServerRunLoopTask != null;
         public delegate void ServerOutputEventHandler(MinecraftServer server, string output);
         public event ServerOutputEventHandler ServerOutputEvent;
-        public bool IsErrored => ConsecutiveErrors < ConsecutiveErrorMax;
+        public bool IsErrored => ConsecutiveErrors >= ConsecutiveErrorMax;
         public int ConsecutiveErrorMax = 10;
-        public int ConsecutiveErrors { get; private set; } 
-        public MinecraftServer(MinecraftRunner runner, ServerHub hub, string serverFolder)
+        public int ConsecutiveErrors { get; private set; }
+        #endregion
+        #region Private
+        private const string InstallerJarRegexstring = "forge-(.*?)-(.*?)-installer\\.jar";
+        private static Regex InstallerJarRegex = new Regex(InstallerJarRegexstring);
+        private const string UniversalJarRegexstring = "forge-(.*?)universal.jar";
+        private static Regex UniversalJarRegex = new Regex(UniversalJarRegexstring);
+        private MinecraftRunner Runner { get; }
+        private Process ServerProcess { get; set; }
+        private MessageHandler MessageHandler { get; set; }
+        private ServerData Data { get; set; }
+        private ServerHub Hub { get; set; }
+        private Task ServerRunLoopTask { get; set; }
+        private CancellationTokenSource ServerRunLoopCancellationSource { get; set; }
+        private Settings Settings { get; }
+        #endregion
+
+        #region Constructor
+        public MinecraftServer(MinecraftRunner runner, ServerHub hub, string serverFolder, Settings settings)
         {
             Runner = runner;
             Hub = hub;
             MinecraftServerFolder = serverFolder;
+            Settings = settings;
+            ConsecutiveErrors = 0;
+            MessageHandler = new MessageHandler(this);
+            MessageHandler.DoneMessageEvent += MessageHandler_DoneMessageEvent;
+            MessageHandler.PlayerMessageEvent += MessageHandler_PlayerMessageEvent;
+            MessageHandler.PlayersEvent += MessageHandler_PlayersEvent;
+            MessageHandler.TpsMessageEvent += MessageHandler_TpsMessageEvent;
+            Hub.HubConnectionEstablished += Hub_HubConnectionEstablished;
+            Hub.KeepAlive += Hub_KeepAlive;
+            Data = new ServerData(name: "test");
         }
 
-        public async Task StartAsync()
+        #endregion
+        #region Hub Events
+        private void Hub_KeepAlive(ServerHub sender)
         {
-            if (Running) return;
+            SendServerDataUpdate();
+        }
 
+        private void Hub_HubConnectionEstablished(ServerHub sender)
+        {
+            SendServerDataUpdate();
+        }
+        #endregion
+
+        #region MessageHandler Events
+        private void MessageHandler_TpsMessageEvent(object sender, string message)
+        {
+            Console.WriteLine(string.Format("Received TPS message = {0}", message));
+        }
+
+        private void MessageHandler_PlayersEvent(object sender, string message)
+        {
+            Console.WriteLine(string.Format("Received Players message = {0}", message));
+        }
+
+        private void MessageHandler_PlayerMessageEvent(object sender, string message)
+        {
+            Console.WriteLine(string.Format("Received Player message = {0}", message));
+        }
+
+        private void MessageHandler_DoneMessageEvent(object sender, string message)
+        {
+            Console.WriteLine("Minecraft server started successfully.");
+            SetStatus(ServerStatus.Running);
+        }
+        #endregion
+
+        #region Run Loop
+        public void StartRunLoop()
+        {
+            if (LoopRunning) return;
+
+            Console.WriteLine("Starting Minecraft Server Run Loop");
+
+            ServerRunLoopCancellationSource = new CancellationTokenSource();
+            ServerRunLoopTask = Task.Factory.StartNew(async () =>
+            {
+                while (!IsErrored && !ServerRunLoopCancellationSource.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await StartServer();
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(string.Format("Encountered exception while Starting Server as part of Run Loop = {0}", e));
+                    }
+
+                    if (ServerProcess != null)
+                    {
+                        ServerProcess.WaitForExit();
+                        HandleServerExit(ServerProcess.ExitCode);
+                    }
+                    else
+                    {
+                        ++ConsecutiveErrors;
+                    }
+
+                    if (ConsecutiveErrors > 0 && !IsErrored)
+                    {
+                        Console.WriteLine(string.Format("Minecraft Server has hit an error - Consecutive Errors = {0}, ErrorMax = {1}", ConsecutiveErrors, ConsecutiveErrorMax));
+                    }
+
+                    if(IsErrored)
+                    {
+                        Console.WriteLine(string.Format("Minecraft Server is now in Errored State - Consecutive Errors = {0}, ErrorMax = {1}", ConsecutiveErrors, ConsecutiveErrorMax));
+                        SetStatus(ServerStatus.Error);
+                    }
+                    ServerRunLoopCancellationSource.Token.ThrowIfCancellationRequested();
+
+                    Console.WriteLine("Sleeping for 10s");
+                    Thread.Sleep(TimeSpan.FromSeconds(10));
+                }
+            }, ServerRunLoopCancellationSource.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        }
+
+        public void HandleServerExit(int code)
+        {
+            Console.WriteLine(string.Format("Server process completed with code = {0}", code));
+
+            if(code == 0)
+            {
+                ConsecutiveErrors = 0;
+            }
+            else
+            {
+                ++ConsecutiveErrors;
+            }
+
+            SetStatus(ServerStatus.Stopped);
+
+            ServerProcess.Dispose();
+            ServerProcess = null;
+        }
+
+        public async Task StopRunLoopAsync()
+        {
+            if (!LoopRunning) return;
+            Console.WriteLine("Stopping Minecraft Server Run Loop");
+            await Task.Factory.StartNew(async () =>
+            {
+                ServerRunLoopCancellationSource.Cancel();
+                Stop(true);
+                await ServerRunLoopTask;
+                ServerRunLoopCancellationSource.Dispose();
+                ServerRunLoopCancellationSource = null;
+                ServerRunLoopTask = null;
+            });
+            Console.WriteLine("Minecraft Server Run Loop Stopped");
+        }
+
+        private async Task StartServer()
+        {
+            if (ServerRunning) return;
+
+
+            try
+            {
+                Install(Settings.McVer, Settings.ForgeVer, Settings.LaunchWrapperVer, force: false);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(String.Format("Encountered exception when attempting to install = {0}", e));
+            }
 
             string serverJar = GetForgeUniversalJarName();
             Console.WriteLine(String.Format("Starting McServer with jar = {0}", serverJar));
 
             Task<ProcessStartInfo> startInfo = GetServerStartInfo(serverJar);
-            if (ServerProcess == null)
-            {
-                ServerProcess = new Process();
-                MessageHandler = new MessageHandler(this);
-                Data = new ServerData(name: "test");
-                ServerProcess.OutputDataReceived += ServerProcess_OutputDataReceived;
-            }
+            ServerProcess = new Process();
+            ServerProcess.OutputDataReceived += ServerProcess_OutputDataReceived;
+            ServerProcess.ErrorDataReceived += ServerProcess_ErrorDataReceived;
 
             ServerProcess.StartInfo = await startInfo;
             RefreshServerData();
             SetStatus(ServerStatus.Starting);
 
             ServerProcess.Start();
+            ServerProcess.BeginOutputReadLine();
+            ServerProcess.BeginErrorReadLine();
         }
+        #endregion
 
         public void SetStatus(ServerStatus status)
         {
@@ -107,16 +256,32 @@ namespace MinecraftRunnerCore
                 FileName = "java",
                 Arguments = string.Join(' ', arguments),
                 WorkingDirectory = Runner.MinecraftServerFolder,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true
             };
         }
 
         private void RefreshServerData()
         {
-            long memory = ServerProcess?.PrivateMemorySize64 ?? 0;
-            long memoryMax = ServerProcess?.VirtualMemorySize64 ?? 0;
-            DriveInfo driveInfo = new DriveInfo(Directory.GetDirectoryRoot(Path.GetDirectoryName(Runner.MinecraftServerFolder)));
-            long storage = driveInfo.TotalSize - driveInfo.TotalFreeSpace;
-            long storageMax = driveInfo.TotalSize;
+            long memory = 0;
+            long memoryMax = 0;
+            long storage = 0;
+            long storageMax = 0;
+            try
+            {
+                ServerProcess?.Refresh();
+                memory = ServerProcess?.PrivateMemorySize64 ?? 0;
+                memoryMax = ServerProcess?.VirtualMemorySize64 ?? 0;
+                DriveInfo driveInfo = new DriveInfo(Directory.GetDirectoryRoot(Path.GetDirectoryName(Runner.MinecraftServerFolder)));
+                storage = driveInfo.TotalSize - driveInfo.TotalFreeSpace;
+                storageMax = driveInfo.TotalSize;
+            }
+            catch (Exception e)
+            {
+                Console.Write(string.Format("Hit Exception during RefreshServerData = {0}", e));
+            }
 
             Data.Memory = memory;
             Data.MemoryMax = memoryMax;
@@ -126,13 +291,25 @@ namespace MinecraftRunnerCore
 
         private void SendServerDataUpdate()
         {
+            Console.WriteLine("Sending Server Data Update");
             Hub.SendMessage(Data.ToMessage()).Wait();
         }
 
         private void ServerProcess_OutputDataReceived(object sender, DataReceivedEventArgs e)
         {
-            _ = MessageHandler?.HandleMessageAsync(this, e.Data);
-            ServerOutputEvent?.Invoke(this, e.Data);
+            try
+            {
+                _ = MessageHandler?.HandleMessageAsync(this, e.Data);
+                ServerOutputEvent?.Invoke(this, e.Data);
+            }
+            catch
+            { }
+            Console.WriteLine(string.Format("[Server]: {0}", e.Data));
+        }
+
+        private void ServerProcess_ErrorDataReceived(object sender, DataReceivedEventArgs e)
+        {
+            Console.WriteLine(string.Format("[Server/Error]: {0}", e.Data));
         }
 
         public void WriteInput(string message, bool flush = true)
@@ -144,17 +321,26 @@ namespace MinecraftRunnerCore
 
         public bool Stop(bool forceful = false)
         {
-            if (!Running) return true;
+            if (!ServerRunning) return true;
+
             WriteInput("stop");
             bool exited = ServerProcess.WaitForExit(Convert.ToInt32(TimeSpan.FromSeconds(30).TotalMilliseconds));
-            if (!exited && forceful)
+
+            if (exited)
+            {
+                SetStatus(ServerStatus.Stopped);
+            }
+            else if (forceful)
             {
                 ServerProcess.Kill();
+                SetStatus(ServerStatus.Stopped);
                 return true;
             }
+
             return exited;
         }
 
+        #region Install
         public void Install(string mcversion, string forgeversion, string launchwrapperversion, bool force)
         {
             if (!Directory.Exists(MinecraftServerFolder))
@@ -167,7 +353,7 @@ namespace MinecraftRunnerCore
                 return;
             }
             
-            if (Running) 
+            if (ServerRunning) 
             {
                 if (!force)
                 {
@@ -198,16 +384,16 @@ namespace MinecraftRunnerCore
                 string installerJarFile = Path.Combine(MinecraftServerFolder, installerJarName);
                 string universalJarName = string.Format("forge-{0}-{1}-universal.jar", mcversion, forgeversion);
                 string installerNetPath = string.Format("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{0}-{1}/{2}", mcversion, forgeversion, universalJarName);
-                var downloadInstallerTask = DownloadFile(installerJarFile, installerNetPath, returnIfExists: true);
+                var downloadInstallerTask = Utilities.DownloadFile(installerJarFile, installerNetPath, returnIfExists: true);
 
                 string serverJarName = string.Format("minecraft_server.{0}.jar", mcversion);
                 string serverNetPath = string.Format("https://s3.amazonaws.com/Minecraft.Download/versions/{0}/{1}", mcversion, serverJarName);
-                var downloadServerTask = DownloadFile(serverJarName, serverNetPath, returnIfExists: true);
+                var downloadServerTask = Utilities.DownloadFile(serverJarName, serverNetPath, returnIfExists: true);
 
                 string launchwrapperJarName = string.Format("launchwrapper-{0}.jar", launchwrapperversion);
                 string launchwrapperNetPath = string.Format("https://libraries.minecraft.net/net/minecraft/launchwrapper/{0}/{1}", launchwrapperversion, launchwrapperJarName);
                 string launchwrapperLocalPath = Path.Combine(MinecraftServerFolder, "libraries", "net", "minecraft", "launchwrapper", launchwrapperversion, launchwrapperJarName);
-                var launchwrapperDownloadTask = DownloadFile(launchwrapperLocalPath, launchwrapperNetPath, returnIfExists: true);
+                var launchwrapperDownloadTask = Utilities.DownloadFile(launchwrapperLocalPath, launchwrapperNetPath, returnIfExists: true);
 
                 Task.WaitAll(new Task[] { downloadInstallerTask, downloadServerTask, launchwrapperDownloadTask });
             }
@@ -278,17 +464,6 @@ namespace MinecraftRunnerCore
                 File.WriteAllText(eulaTxtPath, eulaContents.Replace("false", "true"));
             });
         }
-
-        private async Task DownloadFile(string localPath, string netPath, bool returnIfExists)
-        {
-            if (File.Exists(localPath) && returnIfExists) return;
-
-            Directory.CreateDirectory(localPath);
-
-            var message = Program.HttpClient.GetAsync(netPath);
-            using var stream = File.OpenWrite(localPath);
-            var body = await message.Result.Content.ReadAsStreamAsync();
-            await body.CopyToAsync(stream);
-        }
+        #endregion
     }
 }

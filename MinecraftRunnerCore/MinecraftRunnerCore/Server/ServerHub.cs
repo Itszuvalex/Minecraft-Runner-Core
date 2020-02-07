@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
 
 namespace MinecraftRunnerCore.Server
 {
@@ -18,6 +19,8 @@ namespace MinecraftRunnerCore.Server
         public event HubMessageReceivedEventHandler HubMessageReceived;
         public delegate void HubConnectionEstablishedEventHandler(ServerHub sender);
         public event HubConnectionEstablishedEventHandler HubConnectionEstablished;
+        public delegate void KeepAliveEventHandler(ServerHub sender);
+        public event KeepAliveEventHandler KeepAlive;
         private Task ConnectLoopTask { get; set; }
         public bool ConnectLoopActive => ConnectLoopTask != null;
         private CancellationTokenSource ConnectLoopCancellationSource { get; set; }
@@ -25,14 +28,31 @@ namespace MinecraftRunnerCore.Server
         public bool IsConnected => Socket != null && Socket.State == WebSocketState.Open;
         public Uri HubUri { get; set; }
         static readonly int ConnectionRetryTimeMS = Convert.ToInt32(TimeSpan.FromSeconds(30).TotalMilliseconds);
+        private System.Timers.Timer KeepAliveTimer { get; set; }
+
+        public ServerHub()
+        {
+            KeepAliveTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30).TotalMilliseconds);
+            KeepAliveTimer.Elapsed += Timer_KeepAlive;
+            KeepAliveTimer.AutoReset = true;
+            KeepAliveTimer.Enabled = true;
+        }
+
+        private void Timer_KeepAlive(object timer, ElapsedEventArgs args)
+        {
+            if(IsConnected)
+            {
+                KeepAlive?.Invoke(this);
+            }
+        }
 
         public void BeginConnectionLoop()
         {
             if (ConnectLoopActive) return;
+            Console.WriteLine("Starting Discord connection loop.");
             ConnectLoopCancellationSource = new CancellationTokenSource();
             ConnectLoopTask = Task.Factory.StartNew(async () =>
             {
-                Console.WriteLine("Starting connection loop.");
                 while(!ConnectLoopCancellationSource.IsCancellationRequested)
                 {
                     try
@@ -56,14 +76,15 @@ namespace MinecraftRunnerCore.Server
         public void EndConnectionLoop()
         {
             if (!ConnectLoopActive) return;
+            Console.WriteLine("Ending Discord connection loop.");
             ConnectLoopCancellationSource.Cancel();
             ConnectLoopTask.Wait();
             ConnectLoopTask.Dispose();
             ConnectLoopTask = null;
             ConnectLoopCancellationSource.Dispose();
             ConnectLoopCancellationSource = null;
+            Console.WriteLine("Discord connection loop ended.");
         }
-
 
         public async Task ConnectAsync()
         {

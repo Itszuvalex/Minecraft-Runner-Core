@@ -16,18 +16,15 @@ namespace MinecraftRunnerCore
         public async Task MainAsync(string[] args)
         {
             using var cancellationToken = new CancellationTokenSource();
-            var hub = new ServerHub();
             var settings = Settings.FromFile("Settings.json");
-            hub.HubUri = new Uri(settings.HubUrl);
-            hub.BeginConnectionLoop();
-            var runner = new MinecraftRunner(Directory.GetCurrentDirectory(), settings, hub);
+            var runner = new MinecraftRunner(Directory.GetCurrentDirectory(), settings, cancellationToken.Token);
             Console.CancelKeyPress += new ConsoleCancelEventHandler(delegate (object sender, ConsoleCancelEventArgs e)
             {
                 Console.WriteLine("Cancellation received");
                 cancellationToken.Cancel();
                 e.Cancel = true;
             });
-            await runner.StartAsync(cancellationToken.Token);
+            await runner.StartAsync();
             Console.WriteLine("Closing");
         }
     }
