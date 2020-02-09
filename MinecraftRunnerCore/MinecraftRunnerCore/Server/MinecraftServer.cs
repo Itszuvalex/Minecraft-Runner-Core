@@ -1,4 +1,5 @@
 ﻿using MinecraftRunnerCore.Server;
+using MinecraftRunnerCore.Utility;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -25,7 +26,7 @@ namespace MinecraftRunnerCore
             }
         }
         public bool ServerRunning => ServerProcess != null && !ServerProcess.HasExited;
-        public bool LoopRunning => ServerRunLoopTask != null;
+        public bool LoopRunning => ServerRunLoop.Running;
         public delegate void ServerOutputEventHandler(MinecraftServer server, string output);
         public event ServerOutputEventHandler ServerOutputEvent;
         public bool IsErrored => ConsecutiveErrors >= ConsecutiveErrorMax;
@@ -42,8 +43,7 @@ namespace MinecraftRunnerCore
         private MessageHandler MessageHandler { get; set; }
         private ServerData Data { get; set; }
         private ServerHub Hub { get; set; }
-        private Task ServerRunLoopTask { get; set; }
-        private CancellationTokenSource ServerRunLoopCancellationSource { get; set; }
+        private CancellableRunLoop ServerRunLoop { get; }
         private Settings Settings { get; }
         #endregion
 
@@ -63,6 +63,8 @@ namespace MinecraftRunnerCore
             Hub.HubConnectionEstablished += Hub_HubConnectionEstablished;
             Hub.KeepAlive += Hub_KeepAlive;
             Data = new ServerData(name: "test");
+            ServerRunLoop = new CancellableRunLoop();
+            ServerRunLoop.LoopIterationEvent += ServerRunLoop_LoopIterationEvent; 
         }
 
         #endregion
@@ -102,53 +104,55 @@ namespace MinecraftRunnerCore
         #endregion
 
         #region Run Loop
+        private void ServerRunLoop_LoopIterationEvent(CancellationToken token)
+        {
+            try
+            {
+                StartServer().Wait();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(string.Format("Encountered exception while Starting Server as part of Run Loop = {0}", e));
+            }
+
+            if (ServerProcess != null)
+            {
+                ServerProcess.WaitForExit();
+                HandleServerExit(ServerProcess.ExitCode);
+            }
+            else
+            {
+                ++ConsecutiveErrors;
+            }
+
+            if (ConsecutiveErrors > 0 && !IsErrored)
+            {
+                Console.WriteLine(string.Format("Minecraft Server has hit an error - Consecutive Errors = {0}, ErrorMax = {1}", ConsecutiveErrors, ConsecutiveErrorMax));
+            }
+
+            if(IsErrored)
+            {
+                Console.WriteLine(string.Format("Minecraft Server is now in Errored State - Consecutive Errors = {0}, ErrorMax = {1}", ConsecutiveErrors, ConsecutiveErrorMax));
+                SetStatus(ServerStatus.Error);
+                ServerRunLoop.Stop();
+            }
+
+            Console.WriteLine("Sleeping for 10s");
+            TimeSpan sleep = TimeSpan.FromSeconds(10);
+            const int iterations = 100;
+            for(int i = 0; i < iterations && !token.IsCancellationRequested; ++i)
+            {
+                Thread.Sleep(sleep.Divide(iterations));
+                token.ThrowIfCancellationRequested();
+            }
+        }
+
         public void StartRunLoop()
         {
-            if (LoopRunning) return;
+            if (ServerRunLoop.Running) return;
 
             Console.WriteLine("Starting Minecraft Server Run Loop");
-
-            ServerRunLoopCancellationSource = new CancellationTokenSource();
-            ServerRunLoopTask = Task.Factory.StartNew(async () =>
-            {
-                while (!IsErrored && !ServerRunLoopCancellationSource.Token.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await StartServer();
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(string.Format("Encountered exception while Starting Server as part of Run Loop = {0}", e));
-                    }
-
-                    if (ServerProcess != null)
-                    {
-                        ServerProcess.WaitForExit();
-                        HandleServerExit(ServerProcess.ExitCode);
-                    }
-                    else
-                    {
-                        ++ConsecutiveErrors;
-                    }
-
-                    if (ConsecutiveErrors > 0 && !IsErrored)
-                    {
-                        Console.WriteLine(string.Format("Minecraft Server has hit an error - Consecutive Errors = {0}, ErrorMax = {1}", ConsecutiveErrors, ConsecutiveErrorMax));
-                    }
-
-                    if(IsErrored)
-                    {
-                        Console.WriteLine(string.Format("Minecraft Server is now in Errored State - Consecutive Errors = {0}, ErrorMax = {1}", ConsecutiveErrors, ConsecutiveErrorMax));
-                        SetStatus(ServerStatus.Error);
-                    }
-                    ServerRunLoopCancellationSource.Token.ThrowIfCancellationRequested();
-
-                    Console.WriteLine("Sleeping for 10s");
-                    Thread.Sleep(TimeSpan.FromSeconds(10));
-                }
-            }, ServerRunLoopCancellationSource.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-
+            ServerRunLoop.Start();
         }
 
         public void HandleServerExit(int code)
@@ -174,22 +178,14 @@ namespace MinecraftRunnerCore
         {
             if (!LoopRunning) return;
             Console.WriteLine("Stopping Minecraft Server Run Loop");
-            await Task.Factory.StartNew(async () =>
-            {
-                ServerRunLoopCancellationSource.Cancel();
-                Stop(true);
-                await ServerRunLoopTask;
-                ServerRunLoopCancellationSource.Dispose();
-                ServerRunLoopCancellationSource = null;
-                ServerRunLoopTask = null;
-            });
+            ServerRunLoop.Stop();
+            Stop(true);
             Console.WriteLine("Minecraft Server Run Loop Stopped");
         }
 
         private async Task StartServer()
         {
             if (ServerRunning) return;
-
 
             try
             {
