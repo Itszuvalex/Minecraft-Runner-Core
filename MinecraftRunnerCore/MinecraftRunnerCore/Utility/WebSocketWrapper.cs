@@ -18,7 +18,7 @@ namespace MinecraftRunnerCore.Utility
         public delegate void DataReceivedEventHandler(WebSocketWrapper wrapper, ArraySegment<byte> data);
         public event DataReceivedEventHandler DataReceived;
         public const int KeepAliveDefault = 30;
-        private ClientWebSocket Socket;
+        private ClientWebSocket Socket { get; set; }
         private CancellationTokenSource CancellationSource { get; set; }
         private Uri TargetUri { get; }
         private CancellableRunLoop ReceiveLoop { get; }
@@ -33,7 +33,7 @@ namespace MinecraftRunnerCore.Utility
             TargetUri = target;
             ReceiveLoop = new CancellableRunLoop();
             ReceiveLoop.LoopIterationEvent += ReceiveLoop_LoopIterationEvent;
-            KeepAliveTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30).TotalMilliseconds);
+            KeepAliveTimer = new System.Timers.Timer(KeepAlive.TotalMilliseconds);
             KeepAliveTimer.Elapsed += Timer_KeepAlive;
             KeepAliveTimer.AutoReset = true;
             KeepAliveTimer.Enabled = true;
@@ -85,7 +85,7 @@ namespace MinecraftRunnerCore.Utility
             WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure;
             if (!IsConnected)
             {
-                CloseAsync("Receive on not connected websocket.", status).Wait();
+                CloseAsync("Receive on not connected websocket.", status);
                 return;
             }
 
@@ -99,7 +99,7 @@ namespace MinecraftRunnerCore.Utility
                     if (result.CloseStatus.HasValue)
                     {
                         Console.WriteLine("Received close from hub.");
-                        CloseAsync("Received close.", status).Wait();
+                        CloseAsync("Received close.", status);
                         return;
                     }
 
@@ -126,7 +126,7 @@ namespace MinecraftRunnerCore.Utility
             catch (Exception e)
             {
                 Console.WriteLine(String.Format("Received exception during receive = {0}", e));
-                CloseAsync("Received exception on receive.", status).Wait();
+                CloseAsync("Received exception on receive.", status);
                 return;
             }
         }
@@ -141,7 +141,7 @@ namespace MinecraftRunnerCore.Utility
             catch (Exception e)
             {
                 Console.WriteLine(String.Format("Exception while sending data: {0}", e.ToString()));
-                await CloseAsync("Error on send");
+                CloseAsync("Error on send");
             }
         }
 
@@ -149,11 +149,12 @@ namespace MinecraftRunnerCore.Utility
         {
             if (Socket == null) return;
 
-            ReceiveLoop.Stop();
+            Task receiveTask = ReceiveLoop.StopAsync();
 
             try
             {
-                await Socket.CloseAsync(status, message, CancellationSource.Token);
+                using var closeToken = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await Socket?.CloseAsync(status, message, closeToken.Token);
             }
             catch (Exception e)
             {

@@ -178,8 +178,8 @@ namespace MinecraftRunnerCore
         {
             if (!LoopRunning) return;
             Console.WriteLine("Stopping Minecraft Server Run Loop");
-            ServerRunLoop.Stop();
             Stop(true);
+            ServerRunLoop.Stop();
             Console.WriteLine("Minecraft Server Run Loop Stopped");
         }
 

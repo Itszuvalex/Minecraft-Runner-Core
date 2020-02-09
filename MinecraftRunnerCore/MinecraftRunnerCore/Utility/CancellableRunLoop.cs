@@ -42,10 +42,15 @@ namespace MinecraftRunnerCore.Utility
 
         public void Stop()
         {
+            StopAsync().Wait();
+        }
+
+        public async Task StopAsync()
+        {
             if (!Running) return;
 
             CancellationSource.Cancel();
-            RunTask.Wait();
+            await RunTask;
             CancellationSource.Dispose();
             CancellationSource = null;
             RunTask.Dispose();
