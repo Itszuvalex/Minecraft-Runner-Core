@@ -25,8 +25,7 @@ namespace MinecraftRunnerCore
         {
             RootDirectory = rootDirectory;
             MinecraftServerFolder = Path.Combine(RootDirectory, MinecraftServerFolderName);
-            Hub = new ServerHub();
-            Hub.HubUri = new Uri(settings.HubUrl);
+            Hub = new ServerHub(new Uri(settings.HubUrl));
             Settings = settings;
             Server = new MinecraftServer(this, Hub, MinecraftServerFolder, settings);
             Token = token;

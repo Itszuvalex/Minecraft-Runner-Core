@@ -1,5 +1,5 @@
 ﻿{
-  "HubUrl": "ws://localhost:32775/ws",
+  "HubUrl": "ws://localhost:32779/ws",
   "McVer": "1.12.2",
   "ForgeVer": "14.23.5.2838",
   "LaunchWrapperVer": "1.12"

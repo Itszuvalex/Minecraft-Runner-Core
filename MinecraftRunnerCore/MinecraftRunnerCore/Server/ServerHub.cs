@@ -13,8 +13,7 @@ namespace MinecraftRunnerCore.Server
 {
     class ServerHub
     {
-        private ClientWebSocket Socket { get; set; }
-        private Task SocketReceiveTask { get; set; }
+        private WebSocketWrapper Socket { get; set; }
         private CancellationTokenSource CancellationSource { get; set; }
         public delegate void HubMessageReceivedEventHandler(object sender, IMessage message);
         public event HubMessageReceivedEventHandler HubMessageReceived;
@@ -23,30 +22,58 @@ namespace MinecraftRunnerCore.Server
         public delegate void KeepAliveEventHandler(ServerHub sender);
         public event KeepAliveEventHandler KeepAlive;
         private CancellableRunLoop ConnectLoop { get; }
+        static readonly TimeSpan ConnectionRetryTime = TimeSpan.FromSeconds(30);
 
-        public bool IsConnected => Socket != null && Socket.State == WebSocketState.Open;
-        public Uri HubUri { get; set; }
-        static readonly int ConnectionRetryTimeMS = Convert.ToInt32(TimeSpan.FromSeconds(30).TotalMilliseconds);
-        private System.Timers.Timer KeepAliveTimer { get; set; }
+        public Uri HubUri { get; }
 
-        public ServerHub()
+        public ServerHub(Uri uri)
         {
-            KeepAliveTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30).TotalMilliseconds);
-            KeepAliveTimer.Elapsed += Timer_KeepAlive;
-            KeepAliveTimer.AutoReset = true;
-            KeepAliveTimer.Enabled = true;
+            HubUri = uri;
             ConnectLoop = new CancellableRunLoop();
             ConnectLoop.LoopIterationEvent += ConnectLoop_LoopIterationEvent;
+            Socket = new WebSocketWrapper(HubUri);
+            Socket.KeepAlive += Socket_KeepAlive;
+            Socket.OnConnected += Socket_OnConnected;
+            Socket.DataReceived += Socket_DataReceived;
+        }
+
+        private void Socket_DataReceived(WebSocketWrapper wrapper, ArraySegment<byte> data)
+        {
+            try
+            {
+                IMessage message = JsonSerializer.Deserialize<IMessage>(data, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                });
+                if (message != null)
+                    HubMessageReceived?.Invoke(this, message);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(String.Format("Error deserializing Json message = {0}", e.ToString()));
+            }
+        }
+
+        private void Socket_OnConnected(WebSocketWrapper wrapper)
+        {
+            HubConnectionEstablished?.Invoke(this);
+
+            SendMessage(new ServerData("test").ToMessage()).Wait();
+        }
+
+        private void Socket_KeepAlive(WebSocketWrapper wrapper)
+        {
+            KeepAlive?.Invoke(this);
         }
 
         private void ConnectLoop_LoopIterationEvent(CancellationToken token)
         {
             try
             {
-                if (!IsConnected)
+                if (!Socket.IsConnected)
                 {
                     Console.WriteLine("Connection Loop: Starting to attempt to connect.");
-                    ConnectAsync().Wait();
+                    Socket.ConnectAsync().Wait();
                 }
             }
             catch (Exception e)
@@ -54,14 +81,11 @@ namespace MinecraftRunnerCore.Server
                 Console.WriteLine("Error connecting during Connection Loop = {0}", e.ToString());
             }
             token.ThrowIfCancellationRequested();
-            Thread.Sleep(ConnectionRetryTimeMS);
-        }
-
-        private void Timer_KeepAlive(object timer, ElapsedEventArgs args)
-        {
-            if(IsConnected)
+            const int iterations = 100;
+            for(int i = 0; i < iterations && !token.IsCancellationRequested; ++i)
             {
-                KeepAlive?.Invoke(this);
+                Thread.Sleep(ConnectionRetryTime.Divide(iterations));
+                token.ThrowIfCancellationRequested();
             }
         }
 
@@ -80,130 +104,9 @@ namespace MinecraftRunnerCore.Server
             Console.WriteLine("Discord connection loop ended.");
         }
 
-        public async Task ConnectAsync()
-        {
-            Console.WriteLine("ConnectAsync");
-            if (Socket == null)
-            {
-                Socket = new ClientWebSocket();
-                CancellationSource = new CancellationTokenSource();
-            }
-
-            Task connectTask; 
-            try
-            {
-                connectTask = Socket.ConnectAsync(HubUri, CancellationSource.Token);
-                connectTask.Wait();
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(String.Format("Connection task threw exception on connect = {0}", e.ToString()));
-                await CloseAsync();
-                return;
-            }
-
-            if (!connectTask.IsCompletedSuccessfully)
-            {
-                Console.WriteLine("Connection task completed unsuccessfully.");
-                await CloseAsync();
-                return;
-            }
-
-            Console.WriteLine(String.Format("Connection task completed successfully.  Socket State = {0}", Socket.State.ToString()));
-
-            HubConnectionEstablished?.Invoke(this);
-
-            await SendMessage(new ServerData("test").ToMessage());
-
-            SocketReceiveTask = Task.Factory.StartNew(async () =>
-            {
-                WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure;
-                if (!IsConnected)
-                {
-                    await CloseAsync(status);
-                    return;
-                }
-
-                try
-                {
-                    ArraySegment<byte> buffer = new byte[4 * 1024];
-                    const int bufferMax = 1 << 16;
-                    while (!CancellationSource.IsCancellationRequested)
-                    {
-                        var result = await Socket.ReceiveAsync(buffer, CancellationSource.Token);
-                        if (result.CloseStatus.HasValue)
-                        {
-                            Console.WriteLine("Received close from hub.");
-                            await CloseAsync(status);
-                            return;
-                        }
-
-                        if (!result.EndOfMessage)
-                        {
-                            if (buffer.Count >= bufferMax)
-                            {
-                                status = WebSocketCloseStatus.MessageTooBig;
-                                throw new Exception(String.Format("Websocket buffer size has grown greater than {0}", bufferMax));
-                            }
-                            var temp = new byte[buffer.Count * 2];
-                            buffer.CopyTo(temp);
-                            buffer = temp;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                IMessage message = JsonSerializer.Deserialize<IMessage>(buffer.Slice(0, result.Count), new JsonSerializerOptions
-                                {
-                                    PropertyNameCaseInsensitive = true,
-                                });
-                                if (message != null)
-                                    HubMessageReceived?.Invoke(this, message);
-                            }
-                            catch (Exception e)
-                            {
-                                Console.WriteLine(String.Format("Error deserializing Json message = {0}", e.ToString()));
-                            }
-
-                            // Reset buffer size
-                            buffer = new byte[4 * 1024];
-                        }
-                    }
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(String.Format("Received exception during receive = {0}", e));
-                    await CloseAsync(status);
-                    return;
-                }
-            },
-            TaskCreationOptions.LongRunning);
-        }
-
-        public async Task CloseAsync(WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure)
-        {
-            Console.WriteLine("CloseAsync");
-            if (Socket == null) return;
-
-            try
-            {
-                Console.WriteLine("CloseAsync : Close socket");
-                await Socket.CloseAsync(status, "Minecraft Server closing", CancellationSource.Token);
-            }
-            finally
-            {
-                Console.WriteLine("CloseAsync : Clear data");
-                CancellationSource?.Cancel();
-                Socket?.Dispose();
-                Socket = null;
-                CancellationSource?.Dispose();
-                CancellationSource = null;
-            }
-        }
-
         public async Task SendMessage<T>(T message) where T:IMessage
         {
-            if (!IsConnected) return;
+            if (!Socket.IsConnected) return;
             byte[] json;
             try
             {
@@ -215,15 +118,7 @@ namespace MinecraftRunnerCore.Server
                 return;
             }
 
-            try
-            {
-                await Socket.SendAsync(json, WebSocketMessageType.Text, true, CancellationSource.Token);
-            }
-            catch(Exception e)
-            {
-                Console.WriteLine(String.Format("Exception while sending json message: {0}", e.ToString()));
-                await CloseAsync();
-            }
+            await Socket.SendAsync(json);
         }
     }
 }
