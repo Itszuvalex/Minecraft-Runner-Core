@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
+using MinecraftRunnerCore.Utility;
 
 namespace MinecraftRunnerCore.Server
 {
@@ -16,7 +17,7 @@ namespace MinecraftRunnerCore.Server
         public HashSet<string> Players { get; }
         public int PlayerCount { get; set; }
         public int PlayerMax { get; set; }
-        public Dictionary<string, float> Tps { get; }
+        public TpsLRU Tps { get; }
         public string Status { get; set; }
         public int ActiveTime => Convert.ToInt32((DateTime.Now - CreationTime).TotalSeconds);
 
@@ -26,7 +27,7 @@ namespace MinecraftRunnerCore.Server
         {
             Name = name;
             Players = new HashSet<string>();
-            Tps = new Dictionary<string, float>();
+            Tps = new TpsLRU();
             CreationTime = DateTime.Now;
         }
 
@@ -42,7 +43,7 @@ namespace MinecraftRunnerCore.Server
                 players: Players.ToArray(),
                 playercount: PlayerCount,
                 playermax: PlayerMax,
-                tps: Tps,
+                tps: Tps.ToDictionary(),
                 status: Status,
                 activeTime: ActiveTime
             );

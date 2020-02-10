@@ -15,12 +15,14 @@ namespace MinecraftRunnerCore.Server
     {
         private WebSocketWrapper Socket { get; set; }
         private CancellationTokenSource CancellationSource { get; set; }
-        public delegate void HubMessageReceivedEventHandler(object sender, IMessage message);
-        public event HubMessageReceivedEventHandler HubMessageReceived;
         public delegate void HubConnectionEstablishedEventHandler(ServerHub sender);
         public event HubConnectionEstablishedEventHandler HubConnectionEstablished;
         public delegate void KeepAliveEventHandler(ServerHub sender);
         public event KeepAliveEventHandler KeepAlive;
+        public delegate void ChatMessageEventHandler(ChatMessage message);
+        public event ChatMessageEventHandler ChatMessageReceived;
+        public delegate void ServerCommandEventHandler(ServerCommand message);
+        public event ServerCommandEventHandler ServerCommandReceived;
         private CancellableRunLoop ConnectLoop { get; }
         static readonly TimeSpan ConnectionRetryTime = TimeSpan.FromSeconds(30);
 
@@ -45,8 +47,35 @@ namespace MinecraftRunnerCore.Server
                 {
                     PropertyNameCaseInsensitive = true,
                 });
-                if (message != null)
-                    HubMessageReceived?.Invoke(this, message);
+                if (message == null)
+                    return;
+
+                switch (message.Type)
+                {
+                    case ChatMessage.TypeString:
+                        if(IMessage.TryParseMessage<ChatMessage>(data, out ChatMessage chatMessage))
+                        {
+                            ChatMessageReceived?.Invoke(chatMessage);
+                        }
+                        else
+                        {
+                            Console.WriteLine(String.Format("Unable to parse ChatMessage out of ChatMessage header."));
+                        }
+                        break;
+                    case ServerCommand.TypeString:
+                        if(IMessage.TryParseMessage<ServerCommand>(data, out ServerCommand serverCommand))
+                        {
+                            ServerCommandReceived?.Invoke(serverCommand);
+                        }
+                        else
+                        {
+                            Console.WriteLine(String.Format("Unable to parse ServerCommand out of ServerCommand header."));
+                        }
+                        break;
+                    default:
+                        Console.WriteLine(String.Format("Unhandled Hub Message of type = {0}", message.Type));
+                        break;
+                }
             }
             catch (Exception e)
             {

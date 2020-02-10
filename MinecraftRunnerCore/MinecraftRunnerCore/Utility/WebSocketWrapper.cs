@@ -22,7 +22,7 @@ namespace MinecraftRunnerCore.Utility
         private CancellationTokenSource CancellationSource { get; set; }
         private Uri TargetUri { get; }
         private CancellableRunLoop ReceiveLoop { get; }
-        private System.Timers.Timer KeepAliveTimer { get; set; }
+        private System.Timers.Timer KeepAliveTimer { get; }
 
         public WebSocketWrapper(Uri target)
         : this(target, TimeSpan.FromSeconds(KeepAliveDefault))

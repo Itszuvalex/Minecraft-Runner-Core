@@ -1,5 +1,7 @@
-﻿using MinecraftRunnerCore.Server;
+﻿using MinecraftDiscordBotCore.Models.Messages;
+using MinecraftRunnerCore.Server;
 using MinecraftRunnerCore.Utility;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -35,9 +37,9 @@ namespace MinecraftRunnerCore
         #endregion
         #region Private
         private const string InstallerJarRegexstring = "forge-(.*?)-(.*?)-installer\\.jar";
-        private static Regex InstallerJarRegex = new Regex(InstallerJarRegexstring);
+        private static readonly Regex InstallerJarRegex = new Regex(InstallerJarRegexstring);
         private const string UniversalJarRegexstring = "forge-(.*?)universal.jar";
-        private static Regex UniversalJarRegex = new Regex(UniversalJarRegexstring);
+        private static readonly Regex UniversalJarRegex = new Regex(UniversalJarRegexstring);
         private MinecraftRunner Runner { get; }
         private Process ServerProcess { get; set; }
         private MessageHandler MessageHandler { get; set; }
@@ -45,6 +47,7 @@ namespace MinecraftRunnerCore
         private ServerHub Hub { get; set; }
         private CancellableRunLoop ServerRunLoop { get; }
         private Settings Settings { get; }
+        private System.Timers.Timer DataUpdateTimer { get; }
         #endregion
 
         #region Constructor
@@ -60,11 +63,38 @@ namespace MinecraftRunnerCore
             MessageHandler.PlayerMessageEvent += MessageHandler_PlayerMessageEvent;
             MessageHandler.PlayersEvent += MessageHandler_PlayersEvent;
             MessageHandler.TpsMessageEvent += MessageHandler_TpsMessageEvent;
+            MessageHandler.PlayerJoinedEvent += MessageHandler_PlayerJoinedEvent;
+            MessageHandler.PlayerLeftEvent += MessageHandler_PlayerLeftEvent;
             Hub.HubConnectionEstablished += Hub_HubConnectionEstablished;
             Hub.KeepAlive += Hub_KeepAlive;
+            Hub.ChatMessageReceived += Hub_ChatMessageReceived;
+            Hub.ServerCommandReceived += Hub_ServerCommandReceived;
             Data = new ServerData(name: "test");
             ServerRunLoop = new CancellableRunLoop();
             ServerRunLoop.LoopIterationEvent += ServerRunLoop_LoopIterationEvent; 
+            DataUpdateTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30).TotalMilliseconds);
+            DataUpdateTimer.Elapsed += DataUpdateTimer_Elapsed;
+            DataUpdateTimer.AutoReset = true;
+            DataUpdateTimer.Enabled = true;
+        }
+
+        private void Hub_ServerCommandReceived(ServerCommand message)
+        {
+            WriteInput(message.Command);
+        }
+
+        private void Hub_ChatMessageReceived(ChatMessage message)
+        {
+            WriteInput(String.Format("say [Discord/{0}]:{1}", message.Timestamp, message.Message));
+        }
+
+        private void DataUpdateTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            if(ServerStatus == ServerStatus.Running)
+            {
+                WriteInput("forge tps");
+                WriteInput("list");
+            }
         }
 
         #endregion
@@ -81,19 +111,31 @@ namespace MinecraftRunnerCore
         #endregion
 
         #region MessageHandler Events
-        private void MessageHandler_TpsMessageEvent(object sender, string message)
+        private void MessageHandler_PlayerLeftEvent(object sender, string player)
         {
-            Console.WriteLine(string.Format("Received TPS message = {0}", message));
+            Data.Players.Remove(player);
         }
 
-        private void MessageHandler_PlayersEvent(object sender, string message)
+        private void MessageHandler_PlayerJoinedEvent(object sender, string player)
         {
-            Console.WriteLine(string.Format("Received Players message = {0}", message));
+            Data.Players.Add(player);
+        }
+
+        private void MessageHandler_TpsMessageEvent(object sender, string dim, string tps)
+        {
+            Data.Tps.AddTps(dim, tps);
+        }
+
+        private void MessageHandler_PlayersEvent(object sender, int players)
+        {
+            Data.PlayerCount = players;
         }
 
         private void MessageHandler_PlayerMessageEvent(object sender, string message)
         {
             Console.WriteLine(string.Format("Received Player message = {0}", message));
+            var text = message.Substring(message.IndexOf('<'));
+            Hub.SendMessage(new ChatMessage { Message = text, Timestamp = JsonConvert.SerializeObject(DateTime.Now) }).Wait();
         }
 
         private void MessageHandler_DoneMessageEvent(object sender, string message)
@@ -310,7 +352,7 @@ namespace MinecraftRunnerCore
 
         public void WriteInput(string message, bool flush = true)
         {
-            ServerProcess.StandardInput.Write(message);
+            ServerProcess.StandardInput.WriteLine(message);
             if (flush)
                 ServerProcess.StandardInput.Flush();
         }
