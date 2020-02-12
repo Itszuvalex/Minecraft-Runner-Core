@@ -15,10 +15,10 @@ namespace MinecraftRunnerCore.Server
         public long Storage { get; set; }
         public long StorageMax { get; set; }
         public HashSet<string> Players { get; }
-        public int PlayerCount { get; set; }
+        public int PlayerCount => Players.Count;
         public int PlayerMax { get; set; }
         public TpsLRU Tps { get; }
-        public string Status { get; set; }
+        public ServerStatus Status { get; set; }
         public int ActiveTime => Convert.ToInt32((DateTime.Now - CreationTime).TotalSeconds);
 
         private DateTime CreationTime { get; }
@@ -29,6 +29,7 @@ namespace MinecraftRunnerCore.Server
             Players = new HashSet<string>();
             Tps = new TpsLRU();
             CreationTime = DateTime.Now;
+            Status = ServerStatus.Stopped;
         }
 
         public McServerStatus ToMessage()
@@ -44,7 +45,7 @@ namespace MinecraftRunnerCore.Server
                 playercount: PlayerCount,
                 playermax: PlayerMax,
                 tps: Tps.ToDictionary(),
-                status: Status,
+                status: Status.ToString(),
                 activeTime: ActiveTime
             );
         }

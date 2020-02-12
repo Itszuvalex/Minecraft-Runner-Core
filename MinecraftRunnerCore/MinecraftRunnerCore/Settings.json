@@ -1,6 +1,15 @@
 ﻿{
+  "Name":  "Test",
   "HubUrl": "ws://localhost:32779/ws",
   "McVer": "1.12.2",
   "ForgeVer": "14.23.5.2838",
-  "LaunchWrapperVer": "1.12"
+  "LaunchWrapperVer": "1.12",
+  "Ram": 6,
+  "ServerArgs": [
+    "-XX:+UseG1GC",
+    "-XX:MaxGCPauseMillis=50",
+    "-XX:UseSSE=4",
+    "-XX:+UseNUMA",
+    "nogui"
+  ]
 }

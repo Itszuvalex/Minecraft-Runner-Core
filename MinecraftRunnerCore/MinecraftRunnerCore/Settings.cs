@@ -8,10 +8,13 @@ namespace MinecraftRunnerCore
 {
     public class Settings
     {
+        public string Name { get; set; }
         public string HubUrl { get; set;  }
         public string McVer { get; set; }
         public string ForgeVer { get; set; }
         public string LaunchWrapperVer { get; set; }
+        public int Ram { get; set; }
+        public string[] ServerArgs { get; set; }
 
         public static Settings FromFile(string file)
         {

@@ -18,15 +18,7 @@ namespace MinecraftRunnerCore
     {
         #region Public
         public string MinecraftServerFolder { get; }
-        public ServerStatus ServerStatus
-        {
-            get
-            {
-                if (Enum.TryParse(Data?.Status, out ServerStatus status))
-                    return status;
-                else return ServerStatus.Stopped;
-            }
-        }
+        public ServerStatus ServerStatus => Data.Status;
         public bool ServerRunning => ServerProcess != null && !ServerProcess.HasExited;
         public bool LoopRunning => ServerRunLoop.Running;
         public delegate void ServerOutputEventHandler(MinecraftServer server, string output);
@@ -42,9 +34,9 @@ namespace MinecraftRunnerCore
         private static readonly Regex UniversalJarRegex = new Regex(UniversalJarRegexstring);
         private MinecraftRunner Runner { get; }
         private Process ServerProcess { get; set; }
-        private MessageHandler MessageHandler { get; set; }
-        private ServerData Data { get; set; }
-        private ServerHub Hub { get; set; }
+        private MessageHandler MessageHandler { get; }
+        private ServerData Data { get; }
+        private ServerHub Hub { get; }
         private CancellableRunLoop ServerRunLoop { get; }
         private Settings Settings { get; }
         private System.Timers.Timer DataUpdateTimer { get; }
@@ -69,7 +61,7 @@ namespace MinecraftRunnerCore
             Hub.KeepAlive += Hub_KeepAlive;
             Hub.ChatMessageReceived += Hub_ChatMessageReceived;
             Hub.ServerCommandReceived += Hub_ServerCommandReceived;
-            Data = new ServerData(name: "test");
+            Data = new ServerData(Settings.Name);
             ServerRunLoop = new CancellableRunLoop();
             ServerRunLoop.LoopIterationEvent += ServerRunLoop_LoopIterationEvent; 
             DataUpdateTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30).TotalMilliseconds);
@@ -80,7 +72,19 @@ namespace MinecraftRunnerCore
 
         private void Hub_ServerCommandReceived(ServerCommand message)
         {
-            WriteInput(message.Command);
+            switch(message.Command)
+            {
+                case "stoploop":
+                    StopRunLoopAsync().Wait();
+                    break;
+                case "startloop":
+                    ConsecutiveErrors = 0;
+                    StartRunLoop();
+                    break;
+                default:
+                    WriteInput(message.Command);
+                    break;
+            }
         }
 
         private void Hub_ChatMessageReceived(ChatMessage message)
@@ -90,10 +94,15 @@ namespace MinecraftRunnerCore
 
         private void DataUpdateTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
+            if (ServerStatus != ServerStatus.Stopped)
+            {
+                RefreshServerData();
+            }
+
             if(ServerStatus == ServerStatus.Running)
             {
                 WriteInput("forge tps");
-                WriteInput("list");
+                // WriteInput("list"); // Don't do this since player tracking works
             }
         }
 
@@ -128,7 +137,7 @@ namespace MinecraftRunnerCore
 
         private void MessageHandler_PlayersEvent(object sender, int players)
         {
-            Data.PlayerCount = players;
+            // Data.PlayerCount = players;
         }
 
         private void MessageHandler_PlayerMessageEvent(object sender, string message)
@@ -258,41 +267,38 @@ namespace MinecraftRunnerCore
 
         public void SetStatus(ServerStatus status)
         {
-            if (Data == null)
-                return;
-
             // Based on what status we're switching to
             switch (status)
             {
                 case ServerStatus.Running:
                     break; // Do nothing
                 default:
-                    Data.PlayerCount = 0;
+                    // Data.PlayerCount = 0;
                     Data.Players.Clear();
                     Data.Tps.Clear();
                     break;
             }
-            Data.Status = status.ToString();
+            RefreshServerData();
+            Data.Status = status;
             SendServerDataUpdate();
         }
 
         private async Task<ProcessStartInfo> GetServerStartInfo(string serverJar)
         {
-            string[] arguments = new String[]
+            string[] arguments = new string[]
             {
-                String.Format("-jar \"{0}\"", serverJar),
+                string.Format("-jar \"{0}\"", serverJar),
                 "-Xms512M",
-                String.Format("-Xmx{0}m", "6"),
-                "-XX:+UseG1GC",
-                "-XX:MaxGCPauseMillis=50",
-                "-XX:UseSSE=4",
-                "-XX:+UseNUMA",
-                "nogui"
+                string.Format("-Xmx{0}G", Settings.Ram)
             };
+
+            arguments = arguments.Concat(Settings.ServerArgs).ToArray();
+            string args = string.Join(' ', arguments);
+            Console.WriteLine(String.Format("Starting server with command: java {0}", args));
             return new ProcessStartInfo
             {
                 FileName = "java",
-                Arguments = string.Join(' ', arguments),
+                Arguments = args,
                 WorkingDirectory = Runner.MinecraftServerFolder,
                 CreateNoWindow = true,
                 RedirectStandardError = true,
@@ -361,7 +367,14 @@ namespace MinecraftRunnerCore
         {
             if (!ServerRunning) return true;
 
-            WriteInput("stop");
+            if (ServerStatus == ServerStatus.Starting)
+            {
+                ServerProcess.Kill();
+            }
+            else
+            {
+                WriteInput("stop");
+            }
             bool exited = ServerProcess.WaitForExit(Convert.ToInt32(TimeSpan.FromSeconds(30).TotalMilliseconds));
 
             if (exited)

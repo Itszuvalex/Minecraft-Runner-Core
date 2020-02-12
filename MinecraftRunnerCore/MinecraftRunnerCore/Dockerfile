@@ -2,7 +2,15 @@
 
 FROM mcr.microsoft.com/dotnet/core/runtime:3.1-buster-slim AS base
 WORKDIR /app
-RUN apt-get update & apt-get install -y default-jre & apt-get clean
+RUN \
+  mkdir -p /usr/share/man/man1 && \
+  mkdir -p /etc/ssl/certs/java && \
+  apt-get update && \
+  DEBIAN_FRONTEND=noninteractive \
+    apt-get -y install default-jre-headless \
+  && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
 
 FROM mcr.microsoft.com/dotnet/core/sdk:3.1-buster AS build
 WORKDIR /src
@@ -18,4 +26,5 @@ RUN dotnet publish "MinecraftRunnerCore.csproj" -c Release -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+EXPOSE 25565
 ENTRYPOINT ["dotnet", "MinecraftRunnerCore.dll"]
