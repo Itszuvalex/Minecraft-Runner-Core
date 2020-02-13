@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,6 +31,13 @@ namespace MinecraftRunnerCore
                 cancellationToken.Cancel();
                 e.Cancel = true;
             });
+            AssemblyLoadContext.Default.Unloading += ctx =>
+            {
+                Console.WriteLine("Cancellation received");
+                cancellationToken.Cancel();
+                CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                while(runner.Running && !timeout.Token.IsCancellationRequested) { /* Do Nothing */}
+            };  
             await runner.StartAsync();
             Console.WriteLine("Closing");
         }

@@ -21,6 +21,7 @@ namespace MinecraftRunnerCore
         private Settings Settings { get; }
         public string MinecraftServerFolder { get; }
         private CancellationToken Token { get; }
+        public bool Running { get; private set; }
         public MinecraftRunner(string rootDirectory, Settings settings, CancellationToken token)
         {
             RootDirectory = rootDirectory;
@@ -29,12 +30,15 @@ namespace MinecraftRunnerCore
             Settings = settings;
             Server = new MinecraftServer(this, Hub, MinecraftServerFolder, settings);
             Token = token;
+            Running = false;
         }
 
         public async Task StartAsync()
         {
             Hub.BeginConnectionLoop();
             Server.StartRunLoop();
+
+            Running = true;
 
             await Task.Factory.StartNew(() =>
             {
@@ -46,6 +50,7 @@ namespace MinecraftRunnerCore
 
             await Server.StopRunLoopAsync();
             Hub.EndConnectionLoop();
+            Running = false;
         }
     }
 }
