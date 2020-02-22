@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace MinecraftDiscordBotCore.Models.Messages
+namespace MinecraftRunnerCore.Messages
 {
     public interface IMessage
     {

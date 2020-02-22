@@ -1,9 +1,9 @@
-﻿using MinecraftDiscordBotCore.Models.Messages;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using MinecraftRunnerCore.Utility;
+using MinecraftRunnerCore.Messages;
 
 namespace MinecraftRunnerCore.Server
 {

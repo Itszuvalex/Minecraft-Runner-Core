@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace MinecraftDiscordBotCore.Models.Messages
+namespace MinecraftRunnerCore.Messages
 {
     public class ChatMessage : IMessage
     {

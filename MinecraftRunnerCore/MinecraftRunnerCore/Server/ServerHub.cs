@@ -1,4 +1,4 @@
-﻿using MinecraftDiscordBotCore.Models.Messages;
+﻿using MinecraftRunnerCore.Messages;
 using MinecraftRunnerCore.Utility;
 using System;
 using System.Collections.Generic;
@@ -19,18 +19,22 @@ namespace MinecraftRunnerCore.Server
         public event HubConnectionEstablishedEventHandler HubConnectionEstablished;
         public delegate void KeepAliveEventHandler(ServerHub sender);
         public event KeepAliveEventHandler KeepAlive;
+        public delegate void ServerIdEventHandler(ServerId message);
+        public event ServerIdEventHandler ServerIdReceived;
         public delegate void ChatMessageEventHandler(ChatMessage message);
         public event ChatMessageEventHandler ChatMessageReceived;
         public delegate void ServerCommandEventHandler(ServerCommand message);
         public event ServerCommandEventHandler ServerCommandReceived;
         private CancellableRunLoop ConnectLoop { get; }
+        private Cache Cache { get; }
         static readonly TimeSpan ConnectionRetryTime = TimeSpan.FromSeconds(30);
 
         public Uri HubUri { get; }
 
-        public ServerHub(Uri uri)
+        public ServerHub(Uri uri, Cache cache)
         {
             HubUri = uri;
+            Cache = cache;
             ConnectLoop = new CancellableRunLoop();
             ConnectLoop.LoopIterationEvent += ConnectLoop_LoopIterationEvent;
             Socket = new WebSocketWrapper(HubUri);
@@ -43,7 +47,7 @@ namespace MinecraftRunnerCore.Server
         {
             try
             {
-                IMessage message = JsonSerializer.Deserialize<IMessage>(data, new JsonSerializerOptions
+                MessageHeader message = JsonSerializer.Deserialize<MessageHeader>(data, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true,
                 });
@@ -52,6 +56,16 @@ namespace MinecraftRunnerCore.Server
 
                 switch (message.Type)
                 {
+                    case ServerId.TypeString:
+                        if(IMessage.TryParseMessage<ServerId>(data, out ServerId id))
+                        {
+                            ServerIdReceived?.Invoke(id);
+                        }
+                        else
+                        {
+                            Console.WriteLine(String.Format("Unable to parse ServerId out of ServerId header."));
+                        }
+                        break;
                     case ChatMessage.TypeString:
                         if(IMessage.TryParseMessage<ChatMessage>(data, out ChatMessage chatMessage))
                         {

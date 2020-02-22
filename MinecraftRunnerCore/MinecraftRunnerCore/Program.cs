@@ -23,8 +23,17 @@ namespace MinecraftRunnerCore
                 File.Copy("Settings.json", settingsRunPath);
             }
 
+            var cachePath = Path.Combine("Config", "Cache.json");
+            var cacheExists = File.Exists(cachePath);
+            if(!cacheExists)
+            {
+                File.WriteAllText(cachePath, "{}");
+            }
+
             Settings settings = Settings.FromFile(settingsRunPath);
-            var runner = new MinecraftRunner(Directory.GetCurrentDirectory(), settings, cancellationToken.Token);
+            Cache cache = Cache.FromFile(cachePath);
+            if (!cacheExists) cache.Flush();
+            var runner = new MinecraftRunner(Directory.GetCurrentDirectory(), settings, cache, cancellationToken.Token);
             Console.CancelKeyPress += new ConsoleCancelEventHandler(delegate (object sender, ConsoleCancelEventArgs e)
             {
                 Console.WriteLine("Cancellation received");
@@ -34,7 +43,11 @@ namespace MinecraftRunnerCore
             AssemblyLoadContext.Default.Unloading += ctx =>
             {
                 Console.WriteLine("Cancellation received");
-                cancellationToken.Cancel();
+                try
+                {
+                    cancellationToken.Cancel();
+                }
+                catch (Exception e) { }
                 CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 while(runner.Running && !timeout.Token.IsCancellationRequested) { /* Do Nothing */}
             };  

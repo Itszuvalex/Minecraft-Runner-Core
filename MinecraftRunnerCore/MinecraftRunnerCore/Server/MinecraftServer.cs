@@ -1,4 +1,4 @@
-﻿using MinecraftDiscordBotCore.Models.Messages;
+﻿using MinecraftRunnerCore.Messages;
 using MinecraftRunnerCore.Server;
 using MinecraftRunnerCore.Utility;
 using Newtonsoft.Json;
@@ -39,16 +39,18 @@ namespace MinecraftRunnerCore
         private ServerHub Hub { get; }
         private CancellableRunLoop ServerRunLoop { get; }
         private Settings Settings { get; }
+        private Cache Cache { get; }
         private System.Timers.Timer DataUpdateTimer { get; }
         #endregion
 
         #region Constructor
-        public MinecraftServer(MinecraftRunner runner, ServerHub hub, string serverFolder, Settings settings)
+        public MinecraftServer(MinecraftRunner runner, ServerHub hub, string serverFolder, Settings settings, Cache cache)
         {
             Runner = runner;
             Hub = hub;
             MinecraftServerFolder = serverFolder;
             Settings = settings;
+            Cache = cache;
             ConsecutiveErrors = 0;
             MessageHandler = new MessageHandler(this);
             MessageHandler.DoneMessageEvent += MessageHandler_DoneMessageEvent;
@@ -57,10 +59,11 @@ namespace MinecraftRunnerCore
             MessageHandler.TpsMessageEvent += MessageHandler_TpsMessageEvent;
             MessageHandler.PlayerJoinedEvent += MessageHandler_PlayerJoinedEvent;
             MessageHandler.PlayerLeftEvent += MessageHandler_PlayerLeftEvent;
-            Hub.HubConnectionEstablished += Hub_HubConnectionEstablished;
-            Hub.KeepAlive += Hub_KeepAlive;
             Hub.ChatMessageReceived += Hub_ChatMessageReceived;
             Hub.ServerCommandReceived += Hub_ServerCommandReceived;
+            Hub.ServerIdReceived += Hub_ServerIdReceived;
+            Hub.HubConnectionEstablished += Hub_HubConnectionEstablished;
+            Hub.KeepAlive += Hub_KeepAlive;
             Data = new ServerData(Settings.Name);
             ServerRunLoop = new CancellableRunLoop();
             ServerRunLoop.LoopIterationEvent += ServerRunLoop_LoopIterationEvent; 
@@ -68,6 +71,15 @@ namespace MinecraftRunnerCore
             DataUpdateTimer.Elapsed += DataUpdateTimer_Elapsed;
             DataUpdateTimer.AutoReset = true;
             DataUpdateTimer.Enabled = true;
+        }
+
+        private void Hub_ServerIdReceived(ServerId message)
+        {
+            if (!string.IsNullOrEmpty(message.Guid))
+            {
+                Cache.Guid = Guid.Parse(message.Guid);
+                Cache.Flush();
+            }
         }
 
         private void Hub_ServerCommandReceived(ServerCommand message)
@@ -115,7 +127,7 @@ namespace MinecraftRunnerCore
 
         private void Hub_HubConnectionEstablished(ServerHub sender)
         {
-            SendServerDataUpdate();
+            Hub.SendMessage(new ServerId() { Guid = Cache.Guid.ToString(), Name = Data.Name }).Wait();
         }
         #endregion
 

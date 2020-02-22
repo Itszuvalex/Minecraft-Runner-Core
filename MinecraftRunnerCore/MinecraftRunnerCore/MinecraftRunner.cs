@@ -19,16 +19,18 @@ namespace MinecraftRunnerCore
         private MinecraftServer Server { get; }
         private ServerHub Hub { get; }
         private Settings Settings { get; }
+        private Cache Cache { get; }
         public string MinecraftServerFolder { get; }
         private CancellationToken Token { get; }
         public bool Running { get; private set; }
-        public MinecraftRunner(string rootDirectory, Settings settings, CancellationToken token)
+        public MinecraftRunner(string rootDirectory, Settings settings, Cache cache, CancellationToken token)
         {
             RootDirectory = rootDirectory;
             MinecraftServerFolder = Path.Combine(RootDirectory, MinecraftServerFolderName);
-            Hub = new ServerHub(new Uri(settings.HubUrl));
+            Hub = new ServerHub(new Uri(settings.HubUrl), cache);
             Settings = settings;
-            Server = new MinecraftServer(this, Hub, MinecraftServerFolder, settings);
+            Cache = cache;
+            Server = new MinecraftServer(this, Hub, MinecraftServerFolder, settings, cache);
             Token = token;
             Running = false;
         }
