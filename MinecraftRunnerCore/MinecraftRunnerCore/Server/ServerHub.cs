@@ -100,8 +100,6 @@ namespace MinecraftRunnerCore.Server
         private void Socket_OnConnected(WebSocketWrapper wrapper)
         {
             HubConnectionEstablished?.Invoke(this);
-
-            SendMessage(new ServerData("test").ToMessage()).Wait();
         }
 
         private void Socket_KeepAlive(WebSocketWrapper wrapper)

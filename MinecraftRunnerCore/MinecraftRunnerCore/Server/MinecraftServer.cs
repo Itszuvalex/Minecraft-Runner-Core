@@ -128,6 +128,7 @@ namespace MinecraftRunnerCore
         private void Hub_HubConnectionEstablished(ServerHub sender)
         {
             Hub.SendMessage(new ServerId() { Guid = Cache.Guid.ToString(), Name = Data.Name }).Wait();
+            SendServerDataUpdate();
         }
         #endregion
 
@@ -154,9 +155,8 @@ namespace MinecraftRunnerCore
 
         private void MessageHandler_PlayerMessageEvent(object sender, string message)
         {
-            Console.WriteLine(string.Format("Received Player message = {0}", message));
             var text = message.Substring(message.IndexOf('<'));
-            Hub.SendMessage(new ChatMessage { Message = text, Timestamp = JsonConvert.SerializeObject(DateTime.Now) }).Wait();
+            Hub.SendMessage(new ChatMessage { Message = text, Timestamp = DateTime.Now.ToString("hh:ss") }).Wait();
         }
 
         private void MessageHandler_DoneMessageEvent(object sender, string message)
